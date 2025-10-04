@@ -1,19 +1,17 @@
 import React from 'react';
 
-const SearchBar = ({ query, setQuery, handleSearch, isLoading }) => {
+const SearchBar = ({ query, setQuery }) => {
   return (
-    <form onSubmit={handleSearch} className="search-form">
+    <div className="search-form">
       <input
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search for dialogue..."
+        placeholder="Start typing to search..."
         className="search-input"
+        autoFocus
       />
-      <button type="submit" className="search-button" disabled={isLoading}>
-        {isLoading ? 'Searching...' : 'Search'}
-      </button>
-    </form>
+    </div>
   );
 };
 
