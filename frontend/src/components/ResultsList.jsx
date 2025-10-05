@@ -1,9 +1,10 @@
 import React from 'react';
 import ResultItem from './ResultItem';
+import SkeletonLoader from './SkeletonLoader';
 
 const ResultsList = ({ results, isLoading, searched }) => {
   if (isLoading) {
-    return <p>Loading...</p>;
+    return <SkeletonLoader />;
   }
   if (searched && results.length === 0) {
     return <p>No results found.</p>;
