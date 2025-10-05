@@ -21,12 +21,12 @@ class Subtitle(Base):
 
 Base.metadata.create_all(bind=engine)
 
-def format_time(microseconds):
-    seconds = microseconds // 1000000
-    milliseconds = (microseconds % 1000000) // 1000
+# Re-introducing our own time formatter for reliability
+def format_time_from_ms(milliseconds):
+    seconds = milliseconds // 1000
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 # --- ETL Logic ---
 def process_and_load_subtitles():
@@ -34,22 +34,21 @@ def process_and_load_subtitles():
     db = SessionLocal()
     subtitle_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
     
-    # --- THIS IS THE NEW NAME MAP ---
-    # Add any new series here. The key should be the folder name (lowercase).
     SERIES_NAME_MAP = {
         'initial d': 'Initial D',
-        'nge': 'Neon Genesis Evangelion'
+        'nge': 'Neon Genesis Evangelion',
+        'a silent voice': 'A Silent Voice'
     }
 
     pattern_initial_d = re.compile(r'.*? - \d+.. Stage - (\d+) - .*', re.IGNORECASE)
-    pattern_generic = re.compile(r'^(\d+)', re.IGNORECASE)
+    pattern_generic_ep = re.compile(r'^(\d+)', re.IGNORECASE)
+    pattern_movie = re.compile(r'[\._\s]((?:19|20)\d{2})[\._\s]')
 
     for root, dirs, files in os.walk(subtitle_dir):
         if root == subtitle_dir:
             continue
             
         folder_name = os.path.basename(root).lower()
-        # Look up the full name in our map, or default to a title-cased folder name
         series_name = SERIES_NAME_MAP.get(folder_name, folder_name.replace('_', ' ').title())
 
         for filename in files:
@@ -57,14 +56,16 @@ def process_and_load_subtitles():
                 print(f"Processing file: {filename}...")
                 episode_number = None
                 
-                # Try to parse the episode number from the filename
-                match_id = pattern_initial_d.match(filename)
-                if match_id:
-                    episode_number = int(match_id.group(1))
+                if pattern_movie.search(filename):
+                    episode_number = 1
                 else:
-                    match_generic = pattern_generic.match(filename)
-                    if match_generic:
-                        episode_number = int(match_generic.group(1))
+                    match_id = pattern_initial_d.match(filename)
+                    if match_id:
+                        episode_number = int(match_id.group(1))
+                    else:
+                        match_generic = pattern_generic_ep.match(filename)
+                        if match_generic:
+                            episode_number = int(match_generic.group(1))
 
                 if episode_number is None:
                     print(f"  - Could not parse episode number from: {filename}. Skipping.")
@@ -74,14 +75,22 @@ def process_and_load_subtitles():
                 try:
                     subs = pysubs2.load(filepath, encoding='utf-8')
                     for line in subs:
-                        dialogue_text = line.text.strip()
-                        if dialogue_text:
+                        # --- THIS IS THE UPDATED LOGIC ---
+                        # 1. Skip any line that is a comment
+                        if line.is_comment:
+                            continue
+
+                        # 2. Brute-force remove any remaining {...} tags with a regex
+                        cleaned_text = re.sub(r'\{.*?\}', '', line.text).strip()
+
+                        if cleaned_text:
                             db.add(Subtitle(
-                                series_name=series_name, # Use the pretty name
+                                series_name=series_name,
                                 episode_number=episode_number,
-                                start_time=str(pysubs2.make_time(ms=line.start)),
-                                end_time=str(pysubs2.make_time(ms=line.end)),
-                                dialogue=dialogue_text
+                                # 3. Use our reliable time formatter
+                                start_time=format_time_from_ms(line.start),
+                                end_time=format_time_from_ms(line.end),
+                                dialogue=cleaned_text
                             ))
                 except Exception as e:
                     print(f"  - ERROR processing file {filename}: {e}. Skipping.")
